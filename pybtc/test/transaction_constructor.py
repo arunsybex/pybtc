@@ -271,6 +271,7 @@ class TransactionConstructorTests(unittest.TestCase):
         self.assertEqual(delete_from_script(s, d), e)
 
     def test_new_tx_constructor(self):
+        print("new_tx_constructor")
         # private key cRiTUeUav1FMR4UbQh2gW9n8RfpNHLBHsEYXJYa4Rv6ZrCdTPGqv
         # address mkH3NMrEcijyVutDhvV5fArXJ3A2sxspX9
 
@@ -284,6 +285,7 @@ class TransactionConstructorTests(unittest.TestCase):
         tx.add_input("37d16ef9380e3ade5a722c199a8c98342691d54241458fa646c56f766d388a85", 1, address=a)
         tx.add_output(170470000, "mouKMbHPwWLUCmgqKnkHT7PR3KdF4CNREh")
         tx.sign_input(0, private_key="cRiTUeUav1FMR4UbQh2gW9n8RfpNHLBHsEYXJYa4Rv6ZrCdTPGqv")
+        print(tx["vIn"][0]["signatures"])
         self.assertEqual(result, tx.serialize())
 
         result = "01000000029d05abe190f4a75455aa5ec940a0d524607ecd336e6dcc69c4c22f7ee817964a000000006b4830450221008" \
@@ -301,6 +303,8 @@ class TransactionConstructorTests(unittest.TestCase):
         tx.add_output(250000000, "mouKMbHPwWLUCmgqKnkHT7PR3KdF4CNREh")
         tx.sign_input(0, private_key="cRiTUeUav1FMR4UbQh2gW9n8RfpNHLBHsEYXJYa4Rv6ZrCdTPGqv")
         tx.sign_input(1, private_key="cSimowS3sa1eD762ZtRJUmQ7f9EqpqJa8qieXs4hKjkao2nipoTq")
+        print(tx["vIn"][0]["signatures"])
+        print(tx["vIn"][1]["signatures"])
         self.assertEqual(result, tx.serialize())
 
         result = "01000000019c5287d981ac92491a4555a0d135748c06fbc36ffe80b2806ce719d39262cc23000000006a47304402201b" \
@@ -336,6 +340,8 @@ class TransactionConstructorTests(unittest.TestCase):
                       sighash_type=SIGHASH_SINGLE)
         tx.sign_input(0, private_key="cSimowS3sa1eD762ZtRJUmQ7f9EqpqJa8qieXs4hKjkao2nipoTq",
                       sighash_type=SIGHASH_ALL)
+        print(tx["vIn"][0]["signatures"])
+        print(tx["vIn"][1]["signatures"])
         self.assertEqual(result, tx.serialize())
 
         # sighash single with sig-hash one
@@ -355,8 +361,11 @@ class TransactionConstructorTests(unittest.TestCase):
         tx.add_output(100000000, "mouKMbHPwWLUCmgqKnkHT7PR3KdF4CNREh")
         tx.sign_input(1, private_key="cSimowS3sa1eD762ZtRJUmQ7f9EqpqJa8qieXs4hKjkao2nipoTq",
                       sighash_type=SIGHASH_SINGLE)
+        print(tx["vIn"][1]["signatures"])
+        print(tx["vIn"][1]["signatures"])
         tx.sign_input(0, private_key="cSimowS3sa1eD762ZtRJUmQ7f9EqpqJa8qieXs4hKjkao2nipoTq",
                       sighash_type=SIGHASH_SINGLE)
+        print(tx["vIn"][0]["signatures"])
         self.assertEqual(result, tx.serialize())
         t = "0100000000010ae86eef67d8c6a4fa42c8d1ba56095cfd580675f5e23d4c3eb4e0cd94f749e76e0d00000023220020836874e10" \
             "976a55b3797305458e5062f610ef36d965ae90a2a6e1cf2b82196d6ffffffff490f6350a3dea457086e34431c9376f810d2cc13" \
@@ -451,6 +460,7 @@ class TransactionConstructorTests(unittest.TestCase):
         tx.add_output(120000000, "mouKMbHPwWLUCmgqKnkHT7PR3KdF4CNREh")
         tx.sign_input(0, private_key="cQMtVcE77xqLAAJGPxoQX4ZxnvBxBitBMMQQr5RMBYh4K8kZDswn",
                       sighash_type=SIGHASH_ALL)
+        print(tx["vIn"][0]["signatures"])
         r = "01000000015fb8d47814abed4a40a72065834eb670a25e89a26518ac12cfb9df8b554eff6b00000000920048304502210" \
             "08e7edc6f3fec3d2eb029e68f9340ad0549e24cd6e50e99b33a8f64bae42e44bd02207189c4f1088466754766b76ad731" \
             "3d96b34989769268c4b8cf461f4a6022bf44014751210399179539f1ebedc809887a48fe802093a74435052ab7fb83d58" \
@@ -471,6 +481,7 @@ class TransactionConstructorTests(unittest.TestCase):
                      redeem_script=redeem)
         tx.add_output(120000000, "mouKMbHPwWLUCmgqKnkHT7PR3KdF4CNREh")
         tx.sign_input(0, private_key=[a1.private_key, a2.private_key])
+        print(tx["vIn"][0]["signatures"])
         r = "0100000001895d7b23de44566febd33de5e192e2e65701ef36895a3fbfd3742020c2ac43cf00000000db00483045022100" \
             "a52f86f21a4b189cd172b2c6267149f15d9c02c7ac7cf72eb31d3c5fa475465e02203293d8683376c1574125f7fd36b75d" \
             "770c5c2930d148221aee3123f9c9fd158c01483045022100c1e19c1da2776cea4d57fe0221f34ec3a38719260633cdce96" \
@@ -668,6 +679,7 @@ class TransactionConstructorTests(unittest.TestCase):
         a15 = Address("cRh1T62pjkUGh6NKEEsKJ87Korbp1rw2GNxdzwmcPk5dUzn36aRy", address_type="P2PKH", testnet=True)
         a = ScriptAddress.multisig(15, 15, [a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15],
                                    testnet=True, witness_version=None)
+        print("15 from 15")
         "2N5Z12YFKCzmk8jJKxRQG48ZeAo9fdMFXt6"
         redeem = "5f2103b4603330291721c0a8e9cae65124a7099ecf0df3b46921d0e30c4220597702cb2102b2ec7de7e811c05aaf8443" \
                  "e3810483d5dbcf671512d9999f9c9772b0ce9da47a2102c711ad61c9fbd3600716b981d101cf0a000ab3524525235c42" \
@@ -740,6 +752,7 @@ class TransactionConstructorTests(unittest.TestCase):
 
         tx = Transaction(raw_tx, testnet=1)
         tx.sign_input(0, private_key=a15.private_key, redeem_script=redeem, witness_version=None)
+        print(tx["vIn"][0]["signatures"])
         raw_tx = tx.serialize()
         self.assertEqual(tx.serialize(), result)
 
@@ -1009,23 +1022,71 @@ class TransactionConstructorTests(unittest.TestCase):
                       redeem_script=redeem, amount=987654321, p2sh_p2wsh=1, sighash_type=SIGHASH_SINGLE)
         self.assertEqual(r, tx.serialize())
 
+        a1 = Address("cPBuqn4ZsddXunx6EEev6khbfUzFnh3xxdEUPCrm5uy9qGcmbBEt", address_type="P2PKH", testnet=True)
+        a2 = Address("cVgShyj2q4YKFX8VzCffuQcrJVYhp522NFozNi7ih2KgNVbnysKX", address_type="P2PKH", testnet=True)
+        a3 = Address("cQWBhFENcN8bKEBsUHvpCyCfWVHDLfn1M65Gd6nenQkpEqL4DNUH", address_type="P2PKH", testnet=True)
+        script = b"".join([OP_2,
+                          op_push_data(a1.public_key.key),
+                          op_push_data(a2.public_key.key),
+                          op_push_data(a3.public_key.key),
+                          OP_3,
+                          OP_CHECKMULTISIG])
+        assert a1.address == "mwJMtn5hW54pJC748EExvhRm6FRVmUZXQt"
+        tx = Transaction(testnet=True)
+        tx.add_input("d791f8386516bc464e7702159775734559d884a3fd50e45191c6207cdedac8ae", 0)
+        tx.add_output(64000000, script_pub_key=script)
+        tx.sign_input(0, private_key="cPBuqn4ZsddXunx6EEev6khbfUzFnh3xxdEUPCrm5uy9qGcmbBEt",
+                      address="mwJMtn5hW54pJC748EExvhRm6FRVmUZXQt")
+        assert tx.serialize() == "0100000001aec8dade7c20c69151e450fda384d859457375971502774e46bc166538f891d7000000" \
+                                 "006a47304402200edb1ded443ea8015390c38afeb0564b52f6f9895c45952461f6ccfaf6639b8402" \
+                                 "206c0d3bfd2f7d8c68d5cc3c774a9403d843cd27e33148927e3f575607b91d05c2012103b4603330" \
+                                 "291721c0a8e9cae65124a7099ecf0df3b46921d0e30c4220597702cbffffffff010090d003000000" \
+                                 "0069522103b4603330291721c0a8e9cae65124a7099ecf0df3b46921d0e30c4220597702cb2102b2" \
+                                 "ec7de7e811c05aaf8443e3810483d5dbcf671512d9999f9c9772b0ce9da47a2102c711ad61c9fbd3" \
+                                 "600716b981d101cf0a000ab3524525235c42f2cbcd8c17c6da53ae00000000"
 
+        "cfe002d20590e2400a26b2dd9e2e6af2369cbb1f5442af286485841798590068"
+        tx = Transaction(testnet=True)
+        tx.add_input("cfe002d20590e2400a26b2dd9e2e6af2369cbb1f5442af286485841798590068", 0)
+        tx.add_output(63000000, address="mwJMtn5hW54pJC748EExvhRm6FRVmUZXQt")
+        tx.sign_input(0, private_key=["cPBuqn4ZsddXunx6EEev6khbfUzFnh3xxdEUPCrm5uy9qGcmbBEt",
+                                      "cVgShyj2q4YKFX8VzCffuQcrJVYhp522NFozNi7ih2KgNVbnysKX"],
+                      script_pub_key=script)
+        self.assertEqual(tx.serialize(), "0100000001680059981784856428af42541fbb9c36f26a2e9eddb2260a40e29005d202e"
+                                         "0cf000000009300483045022100a7383d84ee35fb965978144d9243ca0892a1be81ce70"
+                                         "058e70b2ba1ea5a762a7022058647d131fcec2e3a63e57fa475b779b94c81a95b5c164f"
+                                         "dfdbcee0124e3448c01483045022100b3945861a5a8a406bd575857e19accdb0f6385eb"
+                                         "f1c02938b35462cddeef400802205857f56d83e9ed7e98082d9127b8934262d3a046142"
+                                         "9747e865b06345bbf8f9e01ffffffff01c04dc103000000001976a914ad204de226b3d1"
+                                         "1a70dc53b4998f4603e138ff3f88ac00000000")
 
+        tx = Transaction(testnet=True)
+        tx.add_input("cfe002d20590e2400a26b2dd9e2e6af2369cbb1f5442af286485841798590068", 0)
+        tx.add_output(63000000, address="mwJMtn5hW54pJC748EExvhRm6FRVmUZXQt")
+        tx.sign_input(0, private_key="cPBuqn4ZsddXunx6EEev6khbfUzFnh3xxdEUPCrm5uy9qGcmbBEt",
+                      script_pub_key=script)
+        tx.sign_input(0, private_key="cVgShyj2q4YKFX8VzCffuQcrJVYhp522NFozNi7ih2KgNVbnysKX",
+                      script_pub_key=script)
+        self.assertEqual(tx.serialize(), "0100000001680059981784856428af42541fbb9c36f26a2e9eddb2260a40e29005d202e"
+                                         "0cf000000009300483045022100a7383d84ee35fb965978144d9243ca0892a1be81ce70"
+                                         "058e70b2ba1ea5a762a7022058647d131fcec2e3a63e57fa475b779b94c81a95b5c164f"
+                                         "dfdbcee0124e3448c01483045022100b3945861a5a8a406bd575857e19accdb0f6385eb"
+                                         "f1c02938b35462cddeef400802205857f56d83e9ed7e98082d9127b8934262d3a046142"
+                                         "9747e865b06345bbf8f9e01ffffffff01c04dc103000000001976a914ad204de226b3d1"
+                                         "1a70dc53b4998f4603e138ff3f88ac00000000")
+        tx = Transaction(testnet=True)
+        tx.add_input("cfe002d20590e2400a26b2dd9e2e6af2369cbb1f5442af286485841798590068", 0)
+        tx.add_output(63000000, address="mwJMtn5hW54pJC748EExvhRm6FRVmUZXQt")
 
+        tx.sign_input(0, private_key="cVgShyj2q4YKFX8VzCffuQcrJVYhp522NFozNi7ih2KgNVbnysKX",
+                      script_pub_key=script)
+        tx.sign_input(0, private_key="cPBuqn4ZsddXunx6EEev6khbfUzFnh3xxdEUPCrm5uy9qGcmbBEt",
+                      script_pub_key=script)
+        self.assertEqual(tx.serialize(), "0100000001680059981784856428af42541fbb9c36f26a2e9eddb2260a40e29005d202e"
+                                         "0cf000000009300483045022100a7383d84ee35fb965978144d9243ca0892a1be81ce70"
+                                         "058e70b2ba1ea5a762a7022058647d131fcec2e3a63e57fa475b779b94c81a95b5c164f"
+                                         "dfdbcee0124e3448c01483045022100b3945861a5a8a406bd575857e19accdb0f6385eb"
+                                         "f1c02938b35462cddeef400802205857f56d83e9ed7e98082d9127b8934262d3a046142"
+                                         "9747e865b06345bbf8f9e01ffffffff01c04dc103000000001976a914ad204de226b3d1"
+                                         "1a70dc53b4998f4603e138ff3f88ac00000000")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        # print(parse_script("56210307b8ae49ac90a048e9b53357a2354b3334e9c8bee813ecb98e99a7e07e8c3ba32103b28f0c28bfab54554ae8c658ac5c3e0ce6e79ad336331f78c428dd43eea8449b21034b8113d703413d57761b8b9781957b8c0ac1dfe69f492580ca4195f50376ba4a21033400f6afecb833092a9a21cfdf1ed1376e58c5d1f47de74683123987e967a8f42103a6d48b1131e94ba04d9737d61acdaa1322008af9602b3b14862c07a1789aac162102d8b661b0b3302ee2f162b09e07a55ad5dfbe673a9f01d9f0c19617681024306b56ae"))

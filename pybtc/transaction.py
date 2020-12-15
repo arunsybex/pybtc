@@ -20,9 +20,10 @@ class Transaction(dict):
     :param boolean testnet: address type for "decoded" transaction representation.
 
     """
-    def __init__(self, raw_tx=None, format="decoded", version=1, lock_time=0, testnet=False):
+    def __init__(self, raw_tx=None, format="decoded", version=1, lock_time=0, testnet=False, auto_commit=True):
         if format not in ("decoded", "raw"):
             raise ValueError("format error, raw or decoded allowed")
+        self.auto_commit = auto_commit
         self["format"] = format
         self["testnet"] = testnet
         self["segwit"] = False
@@ -77,7 +78,7 @@ class Transaction(dict):
             self["vOut"][k]["value"] = unpack('<Q', stream.read(8))[0]
             self["amount"] += self["vOut"][k]["value"]
             self["vOut"][k]["scriptPubKey"] = stream.read(var_int_to_int(read_var_int(stream)))
-            s = parse_script(self["vOut"][k]["scriptPubKey"], sw)
+            s = parse_script(self["vOut"][k]["scriptPubKey"])
             self["vOut"][k]["nType"] = s["nType"]
             self["vOut"][k]["type"] = s["type"]
             if self["data"] is None:
@@ -356,11 +357,12 @@ class Transaction(dict):
 
     def add_input(self, tx_id=None, v_out=0, sequence=0xffffffff,
                   script_sig=b"", tx_in_witness=None, amount=None,
-                  script_pub_key=None, address=None, private_key=None, redeem_script=None):
+                  script_pub_key=None, address=None, private_key=None,
+                  redeem_script=None, input_verify = True):
         if tx_id is None:
             tx_id = b"\x00" * 32
             v_out = 0xffffffff
-            if sequence != 0xffffffff or self["vIn"]:
+            if (sequence != 0xffffffff or self["vIn"]) and input_verify:
                 raise RuntimeError("invalid coinbase transaction")
 
         if isinstance(tx_id, str):
@@ -370,7 +372,7 @@ class Transaction(dict):
 
         if isinstance(script_sig, str):
             script_sig = bytes.fromhex(script_sig)
-        if not isinstance(script_sig, bytes) or not len(script_sig) <= 520:
+        if not isinstance(script_sig, bytes) or (len(script_sig) > 520 and input_verify):
             raise TypeError("script_sig invalid")
 
         if not isinstance(v_out, int) or not (v_out <= 0xffffffff and v_out >= 0):
@@ -406,7 +408,8 @@ class Transaction(dict):
 
         if tx_id == b"\x00" * 32:
             if not (v_out == 0xffffffff and sequence == 0xffffffff and len(script_sig) <= 100):
-                raise TypeError("coinbase tx invalid")
+                if input_verify:
+                    raise TypeError("coinbase tx invalid")
             self["coinbase"] = True
 
         # script_pub_key
@@ -465,8 +468,9 @@ class Transaction(dict):
         if amount:
             self["vIn"][k]["value"] = amount
         if private_key:
-            self["vIn"][k].private_key = private_key
-        self.__refresh__()
+            self["vIn"][k]["private_key"] = private_key
+        if self.auto_commit:
+            self.commit()
         return self
 
     def add_output(self, amount, address=None, script_pub_key=None):
@@ -516,7 +520,8 @@ class Transaction(dict):
                                                              self["testnet"],
                                                              sh,
                                                              witness_version)
-        self.__refresh__()
+        if self.auto_commit:
+            self.commit()
         return self
 
     def del_output(self, n=None):
@@ -531,7 +536,8 @@ class Transaction(dict):
                 new_out[c] = self["vOut"][i]
                 c += 1
         self["vOut"] = new_out
-        self.__refresh__()
+        if self.auto_commit:
+            self.commit()
         return self
 
     def del_input(self, n):
@@ -546,7 +552,8 @@ class Transaction(dict):
                 new_in[c] = self["vIn"][i]
                 c += 1
         self["vIn"] = new_in
-        self.__refresh__()
+        if self.auto_commit:
+            self.commit()
         return self
 
     def sign_input(self, n, private_key=None, script_pub_key=None,
@@ -557,7 +564,7 @@ class Transaction(dict):
         # private key
         if not private_key:
             try:
-                private_key = self["vIn"][n].private_key.key
+                private_key = self["vIn"][n]["private_key"].key
             except:
                 raise RuntimeError("no private key")
         if isinstance(private_key, list):
@@ -609,6 +616,8 @@ class Transaction(dict):
         elif st["type"] == "P2WSH":
             script_sig = self.__sign_p2wsh(n, private_key, public_key, script_pub_key,
                                            redeem_script, sighash_type, amount)
+        elif st["type"] == "MULTISIG":
+            script_sig = self.__sign_bare_multisig__(n, private_key, public_key, script_pub_key, sighash_type)
         else:
             raise RuntimeError("not implemented")
 
@@ -618,43 +627,37 @@ class Transaction(dict):
             self["vIn"][n]["scriptSig"] = script_sig.hex()
             self["vIn"][n]["scriptSigOpcodes"] = decode_script(script_sig)
             self["vIn"][n]["scriptSigAsm"] = decode_script(script_sig, 1)
-        self.__refresh__()
+        if self.auto_commit:
+            self.commit()
         return self
+
+    def __sign_bare_multisig__(self, n, private_key, public_key, script_pub_key, sighash_type):
+        sighash = self.sig_hash(n, script_pub_key=script_pub_key, sighash_type=sighash_type)
+        sighash = s2rh(sighash) if isinstance(sighash, str) else sighash
+        sig = [sign_message(sighash, p, 0) + bytes([sighash_type]) for p in private_key]
+        self["vIn"][n]['signatures'] = [s if self["format"] == "raw" else s.hex() for s in sig]
+        return b''.join(self.__get_bare_multisig_script_sig__(self["vIn"][n]["scriptSig"],
+                                                              script_pub_key,
+                                                              public_key, sig,
+                                                              n))
 
     def __sign_pubkey__(self, n, private_key, script_pub_key, sighash_type):
         sighash = self.sig_hash(n, script_pub_key=script_pub_key, sighash_type=sighash_type)
         sighash = s2rh(sighash) if isinstance(sighash, str) else sighash
         signature = sign_message(sighash, private_key[0], 0) + bytes([sighash_type])
+        self["vIn"][n]['signatures'] = [signature, ] if self["format"] == "raw" else [signature.hex(), ]
         return b''.join([bytes([len(signature)]), signature])
 
     def __sign_p2pkh__(self, n, private_key, public_key, script_pub_key, sighash_type):
         sighash = self.sig_hash(n, script_pub_key=script_pub_key, sighash_type=sighash_type)
         sighash = s2rh(sighash) if isinstance(sighash, str) else sighash
         signature = sign_message(sighash, private_key[0], 0) + bytes([sighash_type])
+        self["vIn"][n]['signatures'] = [signature, ] if self["format"] == "raw" else [signature.hex(), ]
         script_sig = b''.join([bytes([len(signature)]),
                                signature,
                                bytes([len(public_key[0])]),
                                public_key[0]])
         return script_sig
-    
-    def sign_multisig_wsckt(self,n,public_key,redeem_script,sig):
-        script_sig = self.__sign_p2sh_multisig_sig(n,public_key,redeem_script,sig)
-        print(script_sig)
-        print(script_sig.hex())
-        self["vIn"][n]["scriptSig"] = script_sig.hex()
-        self["vIn"][n]["scriptSigOpcodes"] = decode_script(script_sig)
-        self["vIn"][n]["scriptSigAsm"] = decode_script(script_sig, 1)
-        if self.auto_commit:
-            self.commit()
-        return self
-
-    def __sign_p2sh_multisig_sig(self,n,public_key,redeem_script,sig):
-        self["vIn"][n]['signatures'] = sig
-        return b''.join(self.__get_multisig_script_sig__(self["vIn"][n]["scriptSig"],
-                                                         public_key, sig,
-                                                         redeem_script,
-                                                         redeem_script,
-                                                         n))
 
     def __sign_p2sh(self, n, private_key, public_key, redeem_script, sighash_type, amount, p2sh_p2wsh):
         if not redeem_script:
@@ -676,10 +679,30 @@ class Transaction(dict):
         else:
             return self.__sign_p2sh_custom(n, private_key, public_key, redeem_script, sighash_type, amount)
 
+    def sign_multisig_wsckt(self,n,public_key,redeem_script,sig):
+        script_sig = self.__sign_p2sh_multisig_sig(n,public_key,redeem_script,sig)
+        print(script_sig)
+        print(script_sig.hex())
+        self["vIn"][n]["scriptSig"] = script_sig.hex()
+        self["vIn"][n]["scriptSigOpcodes"] = decode_script(script_sig)
+        self["vIn"][n]["scriptSigAsm"] = decode_script(script_sig, 1)
+        if self.auto_commit:
+            self.commit()
+        return self
+
+    def __sign_p2sh_multisig_sig(self,n,public_key,redeem_script,sig):
+        self["vIn"][n]['signatures'] = sig
+        return b''.join(self.__get_multisig_script_sig__(self["vIn"][n]["scriptSig"],
+                                                         public_key, sig,
+                                                         redeem_script,
+                                                         redeem_script,
+                                                         n))
+
     def __sign_p2sh_multisig(self, n, private_key, public_key, redeem_script, sighash_type):
         sighash = self.sig_hash(n, script_pub_key=redeem_script, sighash_type=sighash_type)
         sighash = s2rh(sighash) if isinstance(sighash, str) else sighash
         sig = [sign_message(sighash, p, 0) + bytes([sighash_type]) for p in private_key]
+        self["vIn"][n]['signatures'] = [s if self["format"] == "raw" else s.hex() for s in sig]
         return b''.join(self.__get_multisig_script_sig__(self["vIn"][n]["scriptSig"],
                                                          public_key, sig,
                                                          redeem_script,
@@ -704,6 +727,9 @@ class Transaction(dict):
             self["vIn"][n]['txInWitness'] = [signature, public_key[0]]
         else:
             self["vIn"][n]['txInWitness'] = [signature.hex(), public_key[0].hex()]
+
+        self["vIn"][n]['signatures'] = [signature,] if self["format"] == "raw" else [signature.hex(),]
+
         return op_push_data(redeem_script)
 
     def __sign_p2sh_p2wsh(self, n, private_key, public_key,
@@ -736,6 +762,7 @@ class Transaction(dict):
         else:
             self["vIn"][n]['txInWitness'] = [signature.hex(),
                                              public_key[0].hex()]
+        self["vIn"][n]['signatures'] = [signature,] if self["format"] == "raw" else [signature.hex(),]
         return b""
 
     def __sign_p2wsh(self, n, private_key, public_key, script_pub_key, redeem_script, sighash_type, amount):
@@ -765,6 +792,7 @@ class Transaction(dict):
         sighash = self.sig_hash_segwit(n, amount, script_pub_key=script_code, sighash_type=sighash_type)
         sighash = bytes.fromhex(sighash) if isinstance(sighash, str) else sighash
         sig = [sign_message(sighash, p, 0) + bytes([sighash_type]) for p in private_key]
+        self["vIn"][n]['signatures'] = [s if self["format"] == "raw" else s.hex() for s in sig]
         if "txInWitness" not in self["vIn"][n]:
             self["vIn"][n]["txInWitness"] = []
         witness = self.__get_multisig_script_sig__(self["vIn"][n]["txInWitness"],
@@ -785,6 +813,7 @@ class Transaction(dict):
         sighash = self.sig_hash_segwit(n, amount, script_pub_key=script_code, sighash_type=sighash_type)
         sighash = bytes.fromhex(sighash) if isinstance(sighash, str) else sighash
         sig = [sign_message(sighash, p, 0) + bytes([sighash_type]) for p in private_key]
+        self["vIn"][n]['signatures'] = [s if self["format"] == "raw" else s.hex() for s in sig]
         if "txInWitness" not in self["vIn"][n]:
             self["vIn"][n]["txInWitness"] = []
         witness = self.__get_multisig_script_sig__(self["vIn"][n]["txInWitness"],
@@ -800,6 +829,31 @@ class Transaction(dict):
             self["vIn"][n]["txInWitness"] = list([w.hex() for w in witness])
         # calculate P2SH redeem script from P2WSH redeem script
         return op_push_data(b"\x00" + op_push_data(sha256(redeem_script)))
+
+    def __get_bare_multisig_script_sig__(self,  script_sig, script_pub_key,
+                                         keys, signatures, n):
+        sig_map = {keys[i]:signatures[i] for i in range(len(keys))}
+        pub_keys = get_multisig_public_keys(script_pub_key)
+        s = get_stream(script_sig)
+        o, d = read_opcode(s)
+        while o:
+            o, d = read_opcode(s)
+            if d and is_valid_signature_encoding(d):
+                for i in range(4):
+                    sighash = self.sig_hash(n, script_pub_key=script_pub_key, sighash_type=d[-1])
+                    sighash = s2rh(sighash) if isinstance(sighash, str) else sighash
+                    pk = public_key_recovery(d[:-1], sighash, i, hex=0)
+                    if pk in pub_keys:
+                        sig_map[pk] = d
+                        break
+        # recreate script sig
+        r = [OP_0]
+        for k in pub_keys:
+            try:
+                r.append(op_push_data(sig_map[k]))
+            except:
+                pass
+        return r
 
     def __get_multisig_script_sig__(self,  script_sig,
                                     keys, signatures,
@@ -853,7 +907,7 @@ class Transaction(dict):
             r += [redeem_script]
         return r
 
-    def sig_hash(self, n, script_pub_key=None, sighash_type=SIGHASH_ALL):
+    def sig_hash(self, n, script_pub_key=None, sighash_type=SIGHASH_ALL, preimage=False):
         # check n
         assert n >= 0
         tx_in_count = len(self["vIn"])
@@ -876,7 +930,7 @@ class Transaction(dict):
 
         # remove opcode separators
         script_code = delete_from_script(script_code, BYTE_OPCODE["OP_CODESEPARATOR"])
-        preimage = bytearray()
+        pm = bytearray()
 
         if ((sighash_type & 31) == SIGHASH_SINGLE) and (n >= (len(self["vOut"]))):
             if self["format"] == "raw":
@@ -884,8 +938,8 @@ class Transaction(dict):
             else:
                 return rh2s(b'\x01' + b'\x00' * 31)
 
-        preimage += struct.pack('<L', self["version"])
-        preimage += b'\x01' if sighash_type & SIGHASH_ANYONECANPAY else int_to_var_int(tx_in_count)
+        pm += struct.pack('<L', self["version"])
+        pm += b'\x01' if sighash_type & SIGHASH_ANYONECANPAY else int_to_var_int(tx_in_count)
 
         for i in self["vIn"]:
             # skip all other inputs for SIGHASH_ANYONECANPAY case
@@ -905,15 +959,15 @@ class Transaction(dict):
                 input += struct.pack('<L', sequence)
             else:
                 input += b'\x00' + struct.pack('<L', sequence)
-            preimage += input
+            pm += input
 
         if (sighash_type & 31) == SIGHASH_NONE:
-            preimage += b'\x00'
+            pm += b'\x00'
         else:
             if (sighash_type & 31) == SIGHASH_SINGLE:
-                preimage += int_to_var_int(n + 1)
+                pm += int_to_var_int(n + 1)
             else:
-                preimage += int_to_var_int(len(self["vOut"]))
+                pm += int_to_var_int(len(self["vOut"]))
 
         if (sighash_type & 31) != SIGHASH_NONE:
             for i in self["vOut"]:
@@ -923,16 +977,18 @@ class Transaction(dict):
                 if i > n and (sighash_type & 31) == SIGHASH_SINGLE:
                     continue
                 if (sighash_type & 31) == SIGHASH_SINGLE and (n != i):
-                    preimage += b'\xff' * 8 + b'\x00'
+                    pm += b'\xff' * 8 + b'\x00'
                 else:
-                    preimage += self["vOut"][i]["value"].to_bytes(8, 'little')
-                    preimage += int_to_var_int(len(script_pub_key)) + script_pub_key
+                    pm += self["vOut"][i]["value"].to_bytes(8, 'little')
+                    pm += int_to_var_int(len(script_pub_key)) + script_pub_key
 
-        preimage += self["lockTime"].to_bytes(4, 'little')
-        preimage += struct.pack(b"<i", sighash_type)
-        return double_sha256(preimage) if self["format"] == "raw" else rh2s(double_sha256(preimage))
+        pm += self["lockTime"].to_bytes(4, 'little')
+        pm += struct.pack(b"<i", sighash_type)
+        if not preimage:
+            pm = double_sha256(pm)
+        return pm if self["format"] == "raw" else rh2s(pm)
 
-    def sig_hash_segwit(self, n, amount, script_pub_key=None, sighash_type=SIGHASH_ALL):
+    def sig_hash_segwit(self, n, amount, script_pub_key=None, sighash_type=SIGHASH_ALL, preimage=False):
         # check n
         assert n >= 0
         tx_in_count = len(self["vIn"])
@@ -954,9 +1010,9 @@ class Transaction(dict):
         assert type(script_code) == bytes
 
         # remove opcode separators
-        preimage = bytearray()
+        pm = bytearray()
         # 1. nVersion of the transaction (4-byte little endian)
-        preimage += struct.pack('<L', self["version"])
+        pm += struct.pack('<L', self["version"])
         # 2. hashPrevouts (32-byte hash)
         # 3. hashSequence (32-byte hash)
         # 4. outpoint (32-byte hash + 4-byte little endian)
@@ -993,14 +1049,15 @@ class Transaction(dict):
                     ho += self["vOut"][o]["value"].to_bytes(8, 'little')
                     ho += int_to_var_int(len(script_pub_key)) + script_pub_key
         hash_outputs = double_sha256(ho) if ho else b'\x00' * 32
-        preimage += hash_prevouts + hash_sequence + outpoint
-        preimage += script_code + value + n_sequence + hash_outputs
-        preimage += struct.pack('<L', self["lockTime"])
-        preimage += struct.pack('<L', sighash_type)
-        sig_hash = double_sha256(preimage)
-        return sig_hash if self["format"] == "raw" else sig_hash.hex()
+        pm += hash_prevouts + hash_sequence + outpoint
+        pm += script_code + value + n_sequence + hash_outputs
+        pm += struct.pack('<L', self["lockTime"])
+        pm += struct.pack('<L', sighash_type)
+        if not preimage:
+            pm = double_sha256(pm)
+        return pm if self["format"] == "raw" else pm.hex()
 
-    def __refresh__(self):
+    def commit(self):
         if not self["vOut"] or not self["vIn"]:
             return
         if self["segwit"]:
